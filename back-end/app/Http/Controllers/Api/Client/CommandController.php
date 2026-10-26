@@ -28,31 +28,42 @@ class CommandController extends Controller
         ]);
 
         $user = $request->user();
-        $car = Car::with('activeDeviceAssignment.device')->findOrFail($request->car_id);
 
-        // 1. Permission Check
+        $car = Car::with('activeDeviceAssignment.device')
+            ->findOrFail($request->car_id);
+
+        // 1. Check that the car belongs to the user's account
+        if ($car->account_id !== $user->account_id) {
+            return response()->json([
+                'message' => 'Unauthorized car access.',
+            ], 403);
+        }
+
+        // 2. Check assistant's permission for this car
         if ($user->role === 'assistant') {
-            $permission = $user->permittedCars()->where('car_id', $car->id)->first();
+            $permission = $user->permittedCars()
+                ->where('car_id', $car->id)
+                ->first();
+
             if (!$permission || !$permission->pivot->can_cut_engine) {
                 return response()->json([
-                    'message' => 'Unauthorized! You do not have permission to control engine for this car.'
+                    'message' => 'Unauthorized! You do not have permission to control engine for this car.',
                 ], 403);
-            }
-        } else {
-            // Check if car belongs to Gerant's Account
-            if ($car->account_id !== $user->account_id) {
-                return response()->json(['message' => 'Unauthorized car access.'], 403);
             }
         }
 
+        // 3. Check active GPS device assignment
         $activeAssignment = $car->activeDeviceAssignment;
+
         if (!$activeAssignment || !$activeAssignment->device) {
-            return response()->json(['message' => 'No active GPS device found on this car.'], 400);
+            return response()->json([
+                'message' => 'No active GPS device found on this car.',
+            ], 400);
         }
 
         $device = $activeAssignment->device;
 
-        // 2. Record Command Request in Database (Pending status)
+        // 4. Record command request in database
         $commandLog = DeviceCommand::create([
             'car_id' => $car->id,
             'device_id' => $device->id,
@@ -62,30 +73,34 @@ class CommandController extends Controller
             'requested_at' => now(),
         ]);
 
-        // 3. Dispatch Command via Traccar API
-        $result = $this->traccarService->sendCommand($device->traccar_device_id, $request->command_type);
+        // 5. Dispatch command via Traccar API
+        $result = $this->traccarService->sendCommand(
+            $device->traccar_device_id,
+            $request->command_type
+        );
 
         if ($result['success']) {
             $commandLog->update([
-                'status' => 'completed',
+                'status' => 'sent',
                 'sent_at' => now(),
-                'completed_at' => now(),
             ]);
 
             return response()->json([
-                'message' => 'Engine command sent successfully!',
+                'message' => 'Engine command accepted by Traccar. Device execution is not yet confirmed.',
                 'command_id' => $commandLog->id,
+                'status' => 'sent',
             ]);
-        } else {
-            $commandLog->update([
-                'status' => 'failed',
-                'error_message' => json_encode($result['error']),
-            ]);
-
-            return response()->json([
-                'message' => 'Failed to send command to device.',
-                'error' => $result['error'],
-            ], 500);
         }
+
+        // 6. Record command failure
+        $commandLog->update([
+            'status' => 'failed',
+            'error_message' => json_encode($result['error']),
+        ]);
+
+        return response()->json([
+            'message' => 'Failed to send command to device.',
+            'error' => $result['error'],
+        ], 500);
     }
 }

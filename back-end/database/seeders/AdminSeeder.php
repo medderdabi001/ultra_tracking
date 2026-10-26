@@ -2,8 +2,8 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
 use App\Models\Admin;
+use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 
 class AdminSeeder extends Seeder
@@ -14,10 +14,12 @@ class AdminSeeder extends Seeder
     public function run(): void
     {
         // Create the primary Super Admin (Vendeur) account
-        Admin::create([
-            'name' => 'Super Admin',
-            'email' => 'admin@admin.com',
-            'password' => Hash::make('12341234'), // Change this to a strong password
-        ]);
+        Admin::firstOrCreate(
+            ['email' => 'admin@admin.com'],
+            [
+                'name' => 'Super Admin',
+                'password' => Hash::make('12341234'),
+            ],
+        );
     }
 }

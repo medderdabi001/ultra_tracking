@@ -12,6 +12,7 @@ class AuthController extends Controller
     /**
      * Authenticate Client User (Gérant / Assistant) and return Sanctum Token.
      */
+
     public function login(Request $request)
     {
         $request->validate([
@@ -25,11 +26,20 @@ class AuthController extends Controller
 
         if (!$user || !Hash::check($request->password, $user->password)) {
             return response()->json([
-                'message' => 'Invalid email or password, or account disabled.'
+                'message' => 'Invalid email or password, or account disabled.',
             ], 401);
         }
 
-        // Generate Sanctum Token for Mobile App
+        // Check whether the user's company account is active
+        $account = $user->account;
+
+        if (!$account || $account->status !== 'active') {
+            return response()->json([
+                'message' => 'Your company account is disabled or inactive.',
+            ], 403);
+        }
+
+        // Generate Sanctum Token only if both user and account are active
         $token = $user->createToken('mobile_app_token')->plainTextToken;
 
         return response()->json([
@@ -41,9 +51,10 @@ class AuthController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'role' => $user->role,
-            ]
+            ],
         ]);
     }
+
 
     /**
      * Get authenticated user profile.
